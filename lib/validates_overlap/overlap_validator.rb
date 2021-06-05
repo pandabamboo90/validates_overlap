@@ -45,7 +45,7 @@ class OverlapValidator < ActiveModel::EachValidator
     generate_overlap_sql_values(record)
     generate_overlap_sql_conditions(record)
     add_attributes(record, options[:scope]) if options && options[:scope].present?
-    add_query_options(options[:query_options]) if options && options[:query_options].present?
+    add_query_options(record, options[:query_options]) if options && options[:query_options].present?
   end
 
   # Check if exists at least one record in DB which is overlapped with current record
@@ -75,6 +75,7 @@ class OverlapValidator < ActiveModel::EachValidator
     assoc_obj = record.send(assoc_name) if record.respond_to?(assoc_name)
     (assoc_obj || record).send(attr_name.to_sym)
   end
+
   # Prepare attribute names to use in sql conditions
   # return array in form ['meetings.starts_at', 'meetings.ends_at']
   def attributes_to_sql(record)
@@ -118,7 +119,7 @@ class OverlapValidator < ActiveModel::EachValidator
       self.sql_conditions = main_condition
     else
       self.sql_conditions = "#{main_condition} AND #{record_table_name(record)}.#{primary_key(record)} !="
-      self.sql_conditions +=   key.is_a?(String) ? "'#{key}'" : key.to_s
+      self.sql_conditions += key.is_a?(String) ? "'#{key}'" : key.to_s
     end
   end
 
@@ -164,7 +165,7 @@ class OverlapValidator < ActiveModel::EachValidator
                  ' IN (:%s)'
                else
                  ' = :%s'
-    end
+               end
 
     self.sql_conditions += " AND #{attribute_to_sql(attr_name, record)} #{operator}" % value_attribute_name(attr_name)
     sql_values.merge!(:"#{value_attribute_name(attr_name)}" => _value)
@@ -200,9 +201,17 @@ class OverlapValidator < ActiveModel::EachValidator
   # Allow to use scope, joins, includes methods before querying
   # == Example:
   # validates_overlap :date_from, :date_to, :query_options => {:includes => "visits"}
-  def add_query_options(methods)
+  def add_query_options(record, methods)
     methods.each do |method_name, params|
-      self.scoped_model = scoped_model.send(method_name.to_sym, *params)
+      if params.blank?
+        self.scoped_model = scoped_model.send(method_name.to_sym)
+      else
+        if params[:with_current_record].present?
+          params[:record] = record
+        end
+
+        self.scoped_model = scoped_model.send(method_name.to_sym, params.except(:with_current_record))
+      end
     end
   end
 end
